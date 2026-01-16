@@ -1,4 +1,4 @@
-# Assemblr
+![Assemblr](/assets/assemblr.logo.svg)
 
 Assemblr is a Rust library for composing runtimes from modular service assemblies.
 
