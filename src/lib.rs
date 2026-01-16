@@ -13,4 +13,4 @@
 pub use assembly_macros::assembly;
 pub mod assembly;
 pub mod registry;
-mod dag;
+pub mod dag;

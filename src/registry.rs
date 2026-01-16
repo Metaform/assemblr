@@ -99,7 +99,7 @@ pub struct RegistryWriteHandle {
 }
 
 impl RegistryWriteHandle {
-    pub(crate) fn new(registry: &ServiceRegistry) -> Self {
+    pub fn new(registry: &ServiceRegistry) -> Self {
         RegistryWriteHandle {
             services: Arc::clone(&registry.services),
         }
@@ -122,75 +122,5 @@ impl RegistryWriteHandle {
 impl Default for ServiceRegistry {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    trait DatabaseService: Send + Sync {
-        fn query(&self, sql: &str) -> String;
-    }
-
-    struct PostgresDb;
-
-    impl DatabaseService for PostgresDb {
-        fn query(&self, sql: &str) -> String {
-            format!("Executing: {}", sql)
-        }
-    }
-
-    struct CacheService {
-        name: String,
-    }
-
-    #[test]
-    fn test_register_and_get_struct() {
-        let registry = ServiceRegistry::new();
-        registry.register(Arc::new(CacheService {
-            name: "redis".to_string(),
-        }));
-
-        let cache = registry.resolve::<CacheService>();
-        assert_eq!(cache.name, "redis");
-    }
-
-    #[test]
-    fn test_register_and_get_trait() {
-        let registry = ServiceRegistry::new();
-        registry.register(Arc::new(Box::new(PostgresDb) as Box<dyn DatabaseService>));
-
-        let db = registry.resolve::<Box<dyn DatabaseService>>();
-        assert_eq!(db.query("SELECT 1"), "Executing: SELECT 1");
-    }
-
-    #[test]
-    #[should_panic(expected = "Service 'assemblr::registry::tests::CacheService' not found in registry")]
-    fn test_get_nonexistent_service() {
-        let registry = ServiceRegistry::new();
-        registry.resolve::<CacheService>();
-    }
-
-    #[test]
-    fn test_multiple_services() {
-        let registry = ServiceRegistry::new();
-        let cache_service = CacheService {
-            name: "redis".to_string(),
-        };
-
-        {
-            let handle = RegistryWriteHandle::new(&registry);
-            register!(&handle, cache_service);
-            register_trait!(&handle, dyn DatabaseService, PostgresDb);
-            // Test resolve_trait with both ServiceRegistry and RegistryWriteHandle
-            resolve_trait!(&registry, dyn DatabaseService);
-            resolve_trait!(&handle, dyn DatabaseService);
-        }
-
-
-        assert!(registry.contains::<CacheService>());
-        assert!(registry.contains::<Box<dyn DatabaseService>>());
-        assert!(!registry.contains::<String>());
     }
 }
