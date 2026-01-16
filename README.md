@@ -206,7 +206,8 @@ impl ServiceAssembly for CustomAssembly {
 Here's a complete example showing how to build a runtime with dependent assemblies:
 
 ```rust
-use assemblr::assembly::{Assembler, AssemblyContext, MutableAssemblyContext, RuntimeMode, NoopMonitor, ServiceAssembly, Result};
+use assemblr::assembly::{Assembler, AssemblyContext, MutableAssemblyContext, 
+                         RuntimeMode, NoopMonitor, ServiceAssembly, Result};
 use assemblr::{register_trait, resolve_trait};
 use assembly_macros::assembly;
 use std::sync::Arc;
