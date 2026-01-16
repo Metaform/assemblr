@@ -1,9 +1,60 @@
+// Copyright (c) 2025 Metaform Systems, Inc
+//
+// This program and the accompanying materials are made available under the
+// terms of the Apache License, Version 2.0 which is available at
+// https://www.apache.org/licenses/LICENSE-2.0
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+// Contributors:
+//      Metaform Systems, Inc. - initial API and implementation
+
+#![allow(dead_code)]
 
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-/// A service registry that maps types to their instances
+/// Register a trait object: `register_trait!(registry_handle, dyn MyTrait, MyImpl)`
+/// Creates Arc<Box<dyn Trait>> automatically
+///
+/// # Parameters
+/// * `registry_handle` - A mutable reference to `RegistryWriteHandle`
+#[macro_export]
+macro_rules! register_trait {
+    ($registry:expr, $trait_type:ty, $instance:expr) => {{
+        let __registry: &RegistryWriteHandle = $registry;
+        __registry.register::<Box<$trait_type>>(std::sync::Arc::new(
+            Box::new($instance) as Box<$trait_type>
+        ))
+    }};
+}
+
+/// Resolve a trait object: `resolve_trait!(registry, dyn MyTrait)`
+///
+/// # Parameters
+/// * `registry` - A reference to `ServiceRegistry` or `RegistryWriteHandle`
+#[macro_export]
+macro_rules! resolve_trait {
+    ($registry:expr, $trait_type:ty) => {{
+        ($registry).resolve::<Box<$trait_type>>()
+    }};
+}
+
+/// Register a concrete type: `register!(registry_handle, instance)`
+/// Automatically wraps the instance in Arc
+///
+/// # Parameters
+/// * `registry_handle` - A mutable reference to `RegistryWriteHandle`
+#[macro_export]
+macro_rules! register {
+    ($registry:expr, $instance:expr) => {{
+        let __registry: &RegistryWriteHandle = $registry;
+        __registry.register(std::sync::Arc::new($instance))
+    }};
+}
+
+/// A registry that maps service types to their instances
 pub struct ServiceRegistry {
     services: Arc<RwLock<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>>,
 }
@@ -17,29 +68,54 @@ impl ServiceRegistry {
     }
 
     /// Register a service
-    pub fn register<T: Any + Send + Sync + 'static>(&self, service: Arc<T>) {
+    pub(crate) fn register<T: Any + Send + Sync + 'static>(&self, service: Arc<T>) {
         let mut services = self.services.write().unwrap();
         services.insert(TypeId::of::<T>(), service as Arc<dyn Any + Send + Sync>);
     }
 
     /// Get a registered service
-    pub fn get<T: Any + Send + Sync + 'static>(&self) -> Option<Arc<T>> {
+    ///
+    /// # Panics
+    /// Panics if the service is not registered
+    pub fn resolve<T: Any + Send + Sync + 'static>(&self) -> Arc<T> {
         let services = self.services.read().unwrap();
         services
             .get(&TypeId::of::<T>())
-            .and_then(|service| {
-                service.clone().downcast::<T>().ok()
-            })
+            .and_then(|service| service.clone().downcast::<T>().ok())
+            .unwrap_or_else(|| panic!("Service '{}' not found in registry", std::any::type_name::<T>()))
     }
 
     /// Check if a service is registered
     pub fn contains<T: Any + 'static>(&self) -> bool {
-        self.services.read().unwrap().contains_key(&TypeId::of::<T>())
+        self.services
+            .read()
+            .unwrap()
+            .contains_key(&TypeId::of::<T>())
+    }
+}
+
+pub struct RegistryWriteHandle {
+    services: Arc<RwLock<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>>,
+}
+
+impl RegistryWriteHandle {
+    pub(crate) fn new(registry: &ServiceRegistry) -> Self {
+        RegistryWriteHandle {
+            services: Arc::clone(&registry.services),
+        }
     }
 
-    /// Clear all registered services
-    pub fn clear(&self) {
-        self.services.write().unwrap().clear();
+    pub fn register<T: Any + Send + Sync + 'static>(&self, service: Arc<T>) {
+        let mut services = self.services.write().unwrap();
+        services.insert(TypeId::of::<T>(), service as Arc<dyn Any + Send + Sync>);
+    }
+
+    pub fn resolve<T: Any + Send + Sync + 'static>(&self) -> Arc<T> {
+        let services = self.services.read().unwrap();
+        services
+            .get(&TypeId::of::<T>())
+            .and_then(|service| service.clone().downcast::<T>().ok())
+            .unwrap_or_else(|| panic!("Service '{}' not found in registry", std::any::type_name::<T>()))
     }
 }
 
@@ -76,24 +152,8 @@ mod tests {
             name: "redis".to_string(),
         }));
 
-        let cache = registry.get::<CacheService>().unwrap();
+        let cache = registry.resolve::<CacheService>();
         assert_eq!(cache.name, "redis");
-    }
-
-    struct Foo {
-        ds: Arc<Box<dyn DatabaseService>>
-    }
-
-    #[test]
-    fn test_foo() {
-        let registry = ServiceRegistry::new();
-
-        registry.register(Arc::new(Box::new(PostgresDb) as Box<dyn DatabaseService>));
-
-        let db = registry.get::<Box<dyn DatabaseService>>().unwrap();
-        let f = Foo { ds: db.clone() };
-
-        assert_eq!(db.query("SELECT 1"), "Executing: SELECT 1");
     }
 
     #[test]
@@ -101,74 +161,36 @@ mod tests {
         let registry = ServiceRegistry::new();
         registry.register(Arc::new(Box::new(PostgresDb) as Box<dyn DatabaseService>));
 
-        let db = registry.get::<Box<dyn DatabaseService>>().unwrap();
+        let db = registry.resolve::<Box<dyn DatabaseService>>();
         assert_eq!(db.query("SELECT 1"), "Executing: SELECT 1");
     }
 
     #[test]
+    #[should_panic(expected = "Service 'assemblr::registry::tests::CacheService' not found in registry")]
     fn test_get_nonexistent_service() {
         let registry = ServiceRegistry::new();
-        let result = registry.get::<CacheService>();
-        assert!(result.is_none());
+        registry.resolve::<CacheService>();
     }
 
     #[test]
     fn test_multiple_services() {
         let registry = ServiceRegistry::new();
-        registry.register(Arc::new(CacheService {
+        let cache_service = CacheService {
             name: "redis".to_string(),
-        }));
+        };
 
-        registry.register(Arc::new(Box::new(PostgresDb) as Box<dyn DatabaseService>));
+        {
+            let handle = RegistryWriteHandle::new(&registry);
+            register!(&handle, cache_service);
+            register_trait!(&handle, dyn DatabaseService, PostgresDb);
+            // Test resolve_trait with both ServiceRegistry and RegistryWriteHandle
+            resolve_trait!(&registry, dyn DatabaseService);
+            resolve_trait!(&handle, dyn DatabaseService);
+        }
+
 
         assert!(registry.contains::<CacheService>());
         assert!(registry.contains::<Box<dyn DatabaseService>>());
         assert!(!registry.contains::<String>());
     }
-
-    #[test]
-    fn test_clear() {
-        let registry = ServiceRegistry::new();
-        registry.register(Arc::new(CacheService {
-            name: "redis".to_string(),
-        }));
-
-        assert!(registry.contains::<CacheService>());
-        registry.clear();
-        assert!(!registry.contains::<CacheService>());
-    }
-}
-
-fn main() {
-    let registry = ServiceRegistry::new();
-
-    registry.register(Arc::new(CacheService {
-        name: "redis".to_string(),
-    }));
-
-    registry.register(Arc::new(Box::new(PostgresDb) as Box<dyn DatabaseService>));
-
-    if let Some(cache) = registry.get::<CacheService>() {
-        println!("Got cache service: {}", cache.name);
-    }
-
-    if let Some(db) = registry.get::<Box<dyn DatabaseService>>() {
-        println!("{}", db.query("SELECT * FROM users"));
-    }
-}
-
-trait DatabaseService: Send + Sync {
-    fn query(&self, sql: &str) -> String;
-}
-
-struct PostgresDb;
-
-impl DatabaseService for PostgresDb {
-    fn query(&self, sql: &str) -> String {
-        format!("Executing: {}", sql)
-    }
-}
-
-struct CacheService {
-    name: String,
 }
