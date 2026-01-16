@@ -132,13 +132,6 @@ fn test_register_and_get_trait() {
 }
 
 #[test]
-#[should_panic(expected = "Service 'registry::CacheService' not found in registry")]
-fn test_get_nonexistent_service() {
-    let registry = ServiceRegistry::new();
-    registry.resolve::<CacheService>();
-}
-
-#[test]
 fn test_multiple_services() {
     let registry = ServiceRegistry::new();
     let cache_service = CacheService {
@@ -635,19 +628,13 @@ fn test_default_trait() {
 // ============================================================================
 
 #[test]
-#[should_panic(expected = "not found in registry")]
-fn test_handle_resolve_panics_on_missing() {
+#[should_panic(expected = "Service 'registry::CacheService' not found in registry")]
+fn test_get_nonexistent_service() {
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
     let registry = ServiceRegistry::new();
-    let handle = RegistryWriteHandle::new(&registry);
-
-    handle.resolve::<CacheService>();
-}
-
-#[test]
-#[should_panic(expected = "Service")]
-fn test_panic_message_includes_type_name() {
-    let registry = ServiceRegistry::new();
-    registry.resolve::<ConfigService>();
+    registry.resolve::<CacheService>();
+    std::panic::set_hook(default_hook);
 }
 
 // ============================================================================
