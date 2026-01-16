@@ -87,8 +87,8 @@ impl ServiceAssemblyBase for SimpleAssembly {
 
 ```rust
 #[assembly(
-    provides = [Box<dyn Database>],
-    requires = [Box<dyn ConnectionPool>])]
+    provides = [Database],
+    requires = [ConnectionPool])]
 struct DatabaseAssembly {}
 ```
 
